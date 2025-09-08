@@ -19,6 +19,10 @@
 #include <QRect>
 #include <QImage>
 #include <QGroupBox>
+#include <QSlider>
+#include <QStringList>
+#include <QMap>
+#include <QColor>
 
 struct BoundingBox {
     QRect rect;
@@ -32,12 +36,14 @@ class MainWindow : public QMainWindow
 
 public:
     explicit MainWindow(QWidget *parent = nullptr);
-    ~MainWindow();  // Declare the destructor
+    ~MainWindow() override;
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
-    void updateImage();                                   // Update image with bounding boxes
+
+    // Refresh current image (and YOLO boxes if toggled)
+    void updateImage();
 
 private slots:
     void showPreviousImage();
@@ -48,34 +54,41 @@ private slots:
     void clearImageList();
     void deleteSelectedImage();
     void moveSelectedImage();
-    void openImageDirectory(); // New slot for opening the directory
+    void openImageDirectory();
     void copySelectedImages();
-    void toggleYoloBoundingBoxes();  // Slot for the new toggle button
-    void on_loadNamesFileButton_clicked();  // This slot takes no arguments
+    void toggleYoloBoundingBoxes();
+    void on_loadNamesFileButton_clicked();
 
 private:
+    // === YOLO / annotations ===
+    QMap<int, QColor> classColors;
+    QImage currentImage;
 
-    QMap<int, QColor> classColors;  // To store class colors
-
-    QImage currentImage; // Holds the currently displayed image
     struct Annotation {
-        QRect boundingBox; // Bounding box coordinates
-        QString className; // Detected class name
-        float confidence;  // Confidence level
+        QRect boundingBox;
+        QString className;
+        float confidence;
     };
-    QVector<Annotation> currentAnnotations; // Holds YOLO annotations for the current image
+    QVector<Annotation> currentAnnotations;
     QStringList classNames;
-    QString getClassName(int classId);                    // Method to get class name from ID
-    void loadClassNames(const QString& namesFilePath);    // Method to load the .names file
 
+    QString getClassName(int classId);
+    void loadClassNames(const QString& namesFilePath);
+
+    // === File / logging / list management ===
     void loadImagesFromDirectory();
     void logActivity(const QString &message);
+
+    // === Bounding boxes display helpers ===
     void displayBoundingBoxes();
     void hideBoundingBoxes();
+    void loadYOLOAnnotations(const QString &imagePath);
+    void displayBoundingBoxes(const QImage &image);
 
     QVector<BoundingBox> getAnnotationsForCurrentImage();
-    QVector<BoundingBox> boundingBoxes; // Example list of bounding boxes
+    QVector<BoundingBox> boundingBoxes;
 
+    // === UI widgets ===
     QListWidget *imageListWidget;
     QLabel *imageLabel;
     QLabel *titleLabel;
@@ -90,11 +103,15 @@ private:
     QPushButton *deleteButton;
     QPushButton *moveButton;
     QPushButton *copyButton;
-    QPushButton *toggleYoloButton;  // New button to toggle bounding boxes
-    QPushButton *loadNamesButton;    // Button for loading .names file
+    QPushButton *toggleYoloButton;
+    QPushButton *loadNamesButton;
     QGroupBox *listGroupBox;
     QGroupBox *actionGroupBox;
     QGroupBox *yoloGroupBox;
+
+    // Slider under image
+    QSlider *imageSlider = nullptr;
+
     QStringList imageList;
     QStringList selectedImagePaths;
     QString savedFilePath;
@@ -104,24 +121,17 @@ private:
 
     QFile logFile;
     QTextStream logStream;
-    QAction *loadNamesAction;        // Menu action for loading .names file
+    QAction *loadNamesAction;
 
     // Layouts
-    QVBoxLayout *actionButtonLayout;  // Layout for action buttons
+    QVBoxLayout *actionButtonLayout;
 
-    // Function to style buttons
+    // Styling
     void styleButton(QPushButton *button);
-
-    // Function to style background
     void setMainWindowStyle();
 
     // Bounding box toggle state
-    bool showYoloBoundingBoxes = false;  // State to track if bounding boxes should be displayed
-
-    // Additional methods to load and display YOLO bounding boxes
-    void loadYOLOAnnotations(const QString &imagePath);
-    void displayBoundingBoxes(const QImage &image);
+    bool showYoloBoundingBoxes = false;
 };
-
 
 #endif // MAINWINDOW_H

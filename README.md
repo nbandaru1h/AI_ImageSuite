@@ -1,4 +1,4 @@
-# IRIS_ImageSelector
+# AI_ImageSelector
 A QT application that allows for data annotators to manage data for filtering.
 General flow of application:
 1. User chooses an image directory on startup

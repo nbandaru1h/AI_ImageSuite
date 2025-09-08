@@ -12,6 +12,10 @@
 #include <QFile>
 #include <QTextStream>
 #include <QLabel>
+#include <QSlider>
+#include <QStatusBar>
+#include <algorithm>
+
 
 // Definition of the styleButton function
 void MainWindow::styleButton(QPushButton *button) {
@@ -79,7 +83,7 @@ MainWindow::MainWindow(QWidget *parent)
     currentAnnotations.clear();
 
     // Create the title label
-    titleLabel = new QLabel("IRIS Image Selector", this);
+    titleLabel = new QLabel("AI Image Selector", this);
     titleLabel->setAlignment(Qt::AlignCenter);
     titleLabel->setStyleSheet("QLabel { font-size: 24px; font-weight: bold; color: #003366; }");
 
@@ -214,6 +218,29 @@ MainWindow::MainWindow(QWidget *parent)
     // Main layout for image display and right panel
     QVBoxLayout *imageLayout = new QVBoxLayout();
     imageLayout->addWidget(imageLabel);
+
+    // --- ADD: slider (“toggle bar”) under the image ---
+    QSlider *imageSlider = new QSlider(Qt::Horizontal, this);
+    imageSlider->setObjectName("imageSlider");
+    imageSlider->setRange(0, 0);
+    imageSlider->setSingleStep(1);
+    imageSlider->setPageStep(1);
+    imageSlider->setTickPosition(QSlider::TicksBelow);
+    imageLayout->addWidget(imageSlider);
+
+    connect(imageSlider, &QSlider::valueChanged, this, [this](int v){
+        if (imageList.isEmpty()) return;
+        if (v < 0 || v >= imageList.size()) return;
+        currentImageIndex = v;
+        updateImage();
+
+        // update counter label
+        if (auto counter = this->findChild<QLabel*>("indexLabel")) {
+            const int total = imageList.size();
+            counter->setText(QString("%1 / %2").arg(total ? v + 1 : 0).arg(total));
+        }
+    });
+
     imageLayout->addLayout(buttonLayout);
     imageLayout->addWidget(infoLabel); // Add the infoLabel with image name and resolution
 
@@ -240,6 +267,11 @@ MainWindow::MainWindow(QWidget *parent)
     QWidget *container = new QWidget();
     container->setLayout(mainLayout);
     setCentralWidget(container);
+
+    // Bottom-right counter (current / total)
+    QLabel *indexLabel = new QLabel("0 / 0", this);
+    indexLabel->setObjectName("indexLabel");
+    statusBar()->addPermanentWidget(indexLabel, 0);
 
     // Set initial window size
     setMinimumSize(1000, 600);
@@ -308,6 +340,18 @@ void MainWindow::openImageDirectory() {
         filters << "*.png" << "*.jpg" << "*.jpeg" << "*.JPG";
         imageList = directory.entryList(filters, QDir::Files, QDir::Name);
 
+        // Sync slider + counter
+        if (auto slider = this->findChild<QSlider*>("imageSlider")) {
+            const int total = static_cast<int>(imageList.size());
+            slider->setRange(0, std::max(0, total - 1));
+
+            if (!imageList.isEmpty()) slider->setValue(currentImageIndex);
+        }
+        if (auto counter = this->findChild<QLabel*>("indexLabel")) {
+            const int total = imageList.size();
+            counter->setText(QString("%1 / %2").arg(total ? currentImageIndex + 1 : 0).arg(total));
+        }
+
         // Log activity
         logActivity("Loaded images from directory: " + dirPath);
 
@@ -319,6 +363,15 @@ void MainWindow::openImageDirectory() {
 void MainWindow::showPreviousImage() {
     if (currentImageIndex > 0) {
         --currentImageIndex;
+
+        if (auto slider = this->findChild<QSlider*>("imageSlider")) {
+            slider->setValue(currentImageIndex);
+        }
+        if (auto counter = this->findChild<QLabel*>("indexLabel")) {
+            const int total = imageList.size();
+            counter->setText(QString("%1 / %2").arg(total ? currentImageIndex + 1 : 0).arg(total));
+        }
+
         updateImage();
         logActivity("Navigated to previous image.");
     }
@@ -327,6 +380,14 @@ void MainWindow::showPreviousImage() {
 void MainWindow::showNextImage() {
     if (currentImageIndex < imageList.size() - 1) {
         ++currentImageIndex;
+        if (auto slider = this->findChild<QSlider*>("imageSlider")) {
+            slider->setValue(currentImageIndex);
+        }
+        if (auto counter = this->findChild<QLabel*>("indexLabel")) {
+            const int total = imageList.size();
+            counter->setText(QString("%1 / %2").arg(total ? currentImageIndex + 1 : 0).arg(total));
+        }
+
         updateImage();
         logActivity("Navigated to next image.");
     }
@@ -340,6 +401,19 @@ void MainWindow::loadImagesFromDirectory() {
         filters << "*.png" << "*.jpg" << "*.jpeg" << "*.JPG";
         imageList = directory.entryList(filters, QDir::Files, QDir::Name);
         currentImageIndex = 0;
+
+        // Sync slider + counter
+        if (auto slider = this->findChild<QSlider*>("imageSlider")) {
+            const int total = static_cast<int>(imageList.size());
+            slider->setRange(0, std::max(0, total - 1));
+
+            if (!imageList.isEmpty()) slider->setValue(currentImageIndex);
+        }
+        if (auto counter = this->findChild<QLabel*>("indexLabel")) {
+            const int total = imageList.size();
+            counter->setText(QString("%1 / %2").arg(total ? currentImageIndex + 1 : 0).arg(total));
+        }
+
         logActivity("Loaded images from directory: " + dirPath);
     }
 }
@@ -561,32 +635,92 @@ void MainWindow::copySelectedImages() {
         return;
     }
 
-    QString destinationFolder = QFileDialog::getExistingDirectory(this, "Select Destination Folder");
-    if (destinationFolder.isEmpty()) {
-        return; // User cancelled
+    const QString destinationFolder = QFileDialog::getExistingDirectory(this, "Select Destination Folder");
+    if (destinationFolder.isEmpty()) return;
+
+    int imagesCopied = 0;
+    int txtCopied    = 0;
+    int failed       = 0;
+
+    // Ensure destination exists
+    QDir destDir(destinationFolder);
+    if (!destDir.exists()) {
+        if (!destDir.mkpath(destinationFolder)) {
+            QMessageBox::warning(this, "Error", "Failed to create the destination folder.");
+            return;
+        }
     }
 
-    for (const QString &imagePath : selectedImagePaths) {
-        QFileInfo fileInfo(imagePath);
-        QString destinationFilePath = destinationFolder + "/" + fileInfo.fileName();
+    for (const QString &imagePath : std::as_const(selectedImagePaths)) {
+        QFileInfo imgInfo(imagePath);
+        const QString dstImagePath = destDir.filePath(imgInfo.fileName());
 
-        if (QFile::exists(destinationFilePath)) {
-            int ret = QMessageBox::warning(this, "File Exists",
-                                           QString("The file %1 already exists in the destination folder. Do you want to overwrite it?")
-                                               .arg(fileInfo.fileName()),
-                                           QMessageBox::Yes | QMessageBox::No);
+        // Ask about overwriting the IMAGE if it exists
+        bool overwriteImage = true;
+        if (QFile::exists(dstImagePath)) {
+            const int ret = QMessageBox::warning(
+                this, "File Exists",
+                QString("The file %1 already exists in the destination folder. Overwrite?")
+                    .arg(imgInfo.fileName()),
+                QMessageBox::Yes | QMessageBox::No
+                );
             if (ret == QMessageBox::No) {
-                continue;
+                overwriteImage = false;
             }
         }
 
-        if (!QFile::copy(imagePath, destinationFilePath)) {
-            QMessageBox::warning(this, "Copy Failed", QString("Failed to copy %1").arg(fileInfo.fileName()));
+        // Copy IMAGE (respect overwrite)
+        bool imageOk = false;
+        if (!QFile::exists(dstImagePath) || overwriteImage) {
+            if (overwriteImage && QFile::exists(dstImagePath)) QFile::remove(dstImagePath);
+            imageOk = QFile::copy(imagePath, dstImagePath);
+        } else {
+            // user chose not to overwrite; treat as "skipped" but not a failure
+            imageOk = true;
+        }
+
+        if (!imageOk) {
+            failed++;
+            continue; // skip sidecar if image copy failed
+        } else {
+            imagesCopied++;
+        }
+
+        // ---- Sidecar .txt (YOLO) ----
+        // Build source sidecar path from the image's location and base name
+        const QString srcTxt = imgInfo.absoluteDir().filePath(imgInfo.completeBaseName() + ".txt");
+        if (QFile::exists(srcTxt)) {
+            const QString dstTxt = destDir.filePath(imgInfo.completeBaseName() + ".txt");
+
+            // Reuse the SAME overwrite decision that user made for the image
+            bool doCopyTxt = true;
+            if (QFile::exists(dstTxt)) {
+                if (overwriteImage) {
+                    QFile::remove(dstTxt);
+                } else {
+                    doCopyTxt = false; // user said No for the image; skip txt too
+                }
+            }
+
+            if (doCopyTxt) {
+                if (QFile::copy(srcTxt, dstTxt)) {
+                    txtCopied++;
+                } else {
+                    // If sidecar fails, count as a failure but keep the copied image
+                    failed++;
+                }
+            }
         }
     }
 
-    QMessageBox::information(this, "Copy Completed", "Selected images have been copied successfully.");
+    // Summary
+    QMessageBox::information(
+        this, "Copy Completed",
+        QString("Images copied: %1\nSidecar .txt copied: %2\nFailures: %3")
+            .arg(imagesCopied).arg(txtCopied).arg(failed)
+        );
 }
+
 
 void MainWindow::logActivity(const QString &message) {
     if (logFile.isOpen()) {
@@ -599,12 +733,54 @@ void MainWindow::logActivity(const QString &message) {
 // Toggle YOLO bounding boxes
 void MainWindow::toggleYoloBoundingBoxes() {
     showYoloBoundingBoxes = !showYoloBoundingBoxes;
+
     if (showYoloBoundingBoxes) {
         displayBoundingBoxes();
+        // Same style as others, only background-color swapped to light blue
+        toggleYoloButton->setStyleSheet(
+            "QPushButton {"
+            "   background-color: lightblue;"
+            "   border: 1px solid #4169e1;"
+            "   border-radius: 5px;"
+            "   font-size: 14px;"
+            "   font-weight: bold;"
+            "   padding: 8px 16px;"
+            "   color: black;"
+            "}"
+            "QPushButton:hover {"
+            "   background-color: #87CEEB;"   // Sky blue on hover
+            "   border: 1px solid #315c8a;"
+            "}"
+            "QPushButton:pressed {"
+            "   background-color: #5dade2;"   // Deeper blue when pressed
+            "   border: 1px solid #25485e;"
+            "}"
+            );
     } else {
         hideBoundingBoxes();
+        // Same style as others, only background-color swapped to gray
+        toggleYoloButton->setStyleSheet(
+            "QPushButton {"
+            "   background-color: gray;"
+            "   border: 1px solid #4169e1;"
+            "   border-radius: 5px;"
+            "   font-size: 14px;"
+            "   font-weight: bold;"
+            "   padding: 8px 16px;"
+            "   color: white;"
+            "}"
+            "QPushButton:hover {"
+            "   background-color: #a9a9a9;"
+            "   border: 1px solid #315c8a;"
+            "}"
+            "QPushButton:pressed {"
+            "   background-color: #696969;"
+            "   border: 1px solid #25485e;"
+            "}"
+            );
     }
 }
+
 
 // Display YOLO bounding boxes
 void MainWindow::displayBoundingBoxes() {
@@ -690,6 +866,12 @@ void MainWindow::updateImage() {
     QString imageName = "Image: " + imageList.at(currentImageIndex);
     QString resolution = "Resolution: " + QString::number(image.width()) + " x " + QString::number(image.height());
     infoLabel->setText(imageName + "<br>" + resolution);
+
+    if (auto counter = this->findChild<QLabel*>("indexLabel")) {
+        const int total = imageList.size();
+        counter->setText(QString("%1 / %2").arg(total ? currentImageIndex + 1 : 0).arg(total));
+    }
+
 }
 
 

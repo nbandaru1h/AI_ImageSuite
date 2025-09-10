@@ -27,15 +27,31 @@ git clone https://github.com/nbandaru1h/AI_ImageSelector.git
 cd AI_ImageSelector
 
 ```
-BUILD (LINUX)
+# INSTALL (LINUX) with APP IMAGE
 
 ```bash
-mkdir build && cd build
-cmake ..
-make
-./AI_ImageSelector
+./scripts/install_launcher.sh
 
 ```
+(Search for the app "AI Image Selector" from your launch menu)
+
+# UNINSTALL (LINUX)
+
+```bash
+./scripts/uninstall_launcher.sh
+```
+
+# BUILD FROM SOURCE
+
+```bash
+git clone https://github.com/nbandaru1h/AI_ImageSelector.git
+cd AI_ImageSelector
+rm -rf build && mkdir build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release ..
+make -j$(nproc)
+./AI_ImageSelector
+```
+
 ------------------------------------------------------------------------------------------------------------------------------------------------------
 Upcoming Updates:
 1. Windows Executable
